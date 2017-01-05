@@ -2,9 +2,9 @@
 'use strict';
 
 var async = require('async');
+var querystring = require('querystring');
+var validator = require('validator');
 
-var categories = require('../categories');
-var privileges = require('../privileges');
 var pagination = require('../pagination');
 var user = require('../user');
 var topics = require('../topics');
@@ -14,7 +14,7 @@ var unreadController = {};
 
 var validFilter = {'': true, 'new': true, 'watched': true};
 
-unreadController.get = function(req, res, next) {
+unreadController.get = function (req, res, next) {
 	var page = parseInt(req.query.page, 10) || 1;
 	var results;
 	var cid = req.query.cid;
@@ -25,32 +25,43 @@ unreadController.get = function(req, res, next) {
 	}
 	var settings;
 	async.waterfall([
-		function(next) {
+		function (next) {
 			async.parallel({
-				watchedCategories: function(next) {
-					getWatchedCategories(req.uid, cid, next);
+				watchedCategories: function (next) {
+					helpers.getWatchedCategories(req.uid, cid, next);
 				},
-				settings: function(next) {
+				settings: function (next) {
 					user.getSettings(req.uid, next);
 				}
 			}, next);
 		},
-		function(_results, next) {
+		function (_results, next) {
 			results = _results;
 			settings = results.settings;
 			var start = Math.max(0, (page - 1) * settings.topicsPerPage);
 			var stop = start + settings.topicsPerPage - 1;
 			topics.getUnreadTopics(cid, req.uid, start, stop, filter, next);
 		}
-	], function(err, data) {
+	], function (err, data) {
 		if (err) {
 			return next(err);
+		}
+
+		data.pageCount = Math.max(1, Math.ceil(data.topicCount / settings.topicsPerPage));
+		data.pagination = pagination.create(page, data.pageCount, req.query);
+
+		if (settings.usePagination && (page < 1 || page > data.pageCount)) {
+			req.query.page = Math.max(1, Math.min(data.pageCount, page));
+			return helpers.redirect(res, '/unread?' + querystring.stringify(req.query));
 		}
 
 		data.categories = results.watchedCategories.categories;
 		data.selectedCategory = results.watchedCategories.selectedCategory;
 
-		data.breadcrumbs = helpers.buildBreadcrumbs([{text: '[[unread:title]]'}]);
+		if (req.path.startsWith('/api/unread') || req.path.startsWith('/unread')) {
+			data.breadcrumbs = helpers.buildBreadcrumbs([{text: '[[unread:title]]'}]);
+		}
+
 		data.title = '[[pages:unread]]';
 		data.filters = [{
 			name: '[[unread:all-topics]]',
@@ -69,48 +80,17 @@ unreadController.get = function(req, res, next) {
 			filter: 'watched'
 		}];
 
-		data.selectedFilter = data.filters.filter(function(filter) {
+		data.selectedFilter = data.filters.find(function (filter) {
 			return filter && filter.selected;
-		})[0];
+		});
 
-		data.querystring = req.query.cid ? ('?cid=' + req.query.cid) : '';
-
-		data.pageCount = Math.max(1, Math.ceil(data.topicCount / settings.topicsPerPage));
-		data.pagination = pagination.create(page, data.pageCount, req.query);
+		data.querystring = cid ? ('?cid=' + validator.escape(String(cid))) : '';
 
 		res.render('unread', data);
 	});
 };
 
-function getWatchedCategories(uid, selectedCid, callback) {
-	async.waterfall([
-		function (next) {
-			user.getWatchedCategories(uid, next);
-		},
-		function (cids, next) {
-			privileges.categories.filterCids('read', cids, uid, next);
-		},
-		function (cids, next) {
-			categories.getCategoriesFields(cids, ['cid', 'name', 'slug', 'icon', 'link', 'color', 'bgColor'], next);
-		},
-		function (categoryData, next) {
-			categoryData = categoryData.filter(function(category) {
-				return category && !category.link;
-			});
-			var selectedCategory;
-			categoryData.forEach(function(category) {
-				category.selected = parseInt(category.cid, 10) === parseInt(selectedCid, 10);
-				if (category.selected) {
-					selectedCategory = category;
-				}
-			});
-			next(null, {categories: categoryData, selectedCategory: selectedCategory});
-		}
-	], callback);
-}
-
-
-unreadController.unreadTotal = function(req, res, next) {
+unreadController.unreadTotal = function (req, res, next) {
 	var filter = req.params.filter || '';
 
 	if (!validFilter[filter]) {

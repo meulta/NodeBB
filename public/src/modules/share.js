@@ -1,32 +1,32 @@
 'use strict';
 
-/* globals define */
+/* globals define, config */
 
-define('share', function() {
+define('share', function () {
 
 	var module = {};
 
-	module.addShareHandlers = function(name) {
+	module.addShareHandlers = function (name) {
 
 		var baseUrl = window.location.protocol + '//' + window.location.host;
 
 		function openShare(url, urlToPost, width, height) {
-			window.open(url + encodeURIComponent(baseUrl + urlToPost), '_blank', 'width=' + width + ',height=' + height + ',scrollbars=no,status=no');
+			window.open(url + encodeURIComponent(baseUrl + config.relative_path + urlToPost), '_blank', 'width=' + width + ',height=' + height + ',scrollbars=no,status=no');
 			return false;
 		}
 
-		$('#content').off('shown.bs.dropdown', '.share-dropdown').on('shown.bs.dropdown', '.share-dropdown', function() {
+		$('#content').off('shown.bs.dropdown', '.share-dropdown').on('shown.bs.dropdown', '.share-dropdown', function () {
 
 			var postLink = $(this).find('.post-link');
 			postLink.val(baseUrl + getPostUrl($(this)));
 
 			// without the setTimeout can't select the text in the input
-			setTimeout(function() {
+			setTimeout(function () {
 				postLink.putCursorAtEnd().select();
 			}, 50);
 		});
 
-		addHandler('.post-link', function(e) {
+		addHandler('.post-link', function (e) {
 			e.preventDefault();
 			return false;
 		});
@@ -51,9 +51,8 @@ define('share', function() {
 	}
 
 	function getPostUrl(clickedElement) {
-		var parts = window.location.pathname.split('/');
-		var postIndex = parseInt(clickedElement.parents('[data-index]').attr('data-index'), 10);
-		return '/' + parts[1] + '/' + parts[2] + (parts[3] ? '/' + parts[3] : '') + (postIndex ? '/' + (postIndex + 1) : '');
+		var pid = parseInt(clickedElement.parents('[data-pid]').attr('data-pid'), 10);
+		return '/post' + (pid ? '/' + (pid) : '');
 	}
 
 	return module;

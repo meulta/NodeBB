@@ -3,47 +3,30 @@
 var winston = require('winston'),
 	async = require('async');
 
-module.exports = function(Plugins) {
+module.exports = function (Plugins) {
 	Plugins.deprecatedHooks = {
-		'filter:user.custom_fields': null	// remove in v1.1.0
+		'filter:user.custom_fields': null,	// remove in v1.1.0
+		'filter:post.save': 'filter:post.create',
+		'filter:user.profileLinks': 'filter:user.profileMenu'
 	};
-
-	Plugins.deprecatedHooksParams = {
-		'action:homepage.get': '{req, res}',
-		'filter:register.check': '{req, res}',
-		'action:user.loggedOut': '{req, res}',
-		'static:user.loggedOut': '{req, res}',
-		'filter:categories.build': '{req, res}',
-		'filter:category.build': '{req, res}',
-		'filter:group.build': '{req, res}',
-		'filter:register.build': '{req, res}',
-		'filter:composer.build': '{req, res}',
-		'filter:popular.build': '{req, res}',
-		'filter:recent.build': '{req, res}',
-		'filter:topic.build': '{req, res}',
-		'filter:users.build': '{req, res}',
-		'filter:admin.category.get': '{req, res}',
-		'filter:middleware.renderHeader': '{req, res}',
-		'filter:widget.render': '{req, res}',
-		'filter:middleware.buildHeader': '{req, locals}',
-		'action:middleware.pageView': '{req}',
-		'action:meta.override404': '{req}'
-	};
-
 	/*
 		`data` is an object consisting of (* is required):
 			`data.hook`*, the name of the NodeBB hook
 			`data.method`*, the method called in that plugin
 			`data.priority`, the relative priority of the method when it is eventually called (default: 10)
 	*/
-	Plugins.registerHook = function(id, data, callback) {
+	Plugins.registerHook = function (id, data, callback) {
+		callback = callback || function () {};
 		function register() {
 			Plugins.loadedHooks[data.hook] = Plugins.loadedHooks[data.hook] || [];
 			Plugins.loadedHooks[data.hook].push(data);
 
-			if (typeof callback === 'function') {
-				callback();
-			}
+			callback();
+		}
+
+		if (!data.hook) {
+			winston.warn('[plugins/' + id + '] registerHook called with invalid data.hook', data);
+			return callback();
 		}
 
 		var method;
@@ -62,12 +45,6 @@ module.exports = function(Plugins) {
 				parts.pop();
 			}
 			var hook = parts.join(':');
-			if (Plugins.deprecatedHooksParams[hook]) {
-				winston.warn('[plugins/' + id + '] Hook `' + hook + '` parameters: `' + Plugins.deprecatedHooksParams[hook] + '`, are being deprecated, '
-				+ 'all plugins should now use the `middleware/cls` module instead of hook\'s arguments to get a reference to the `http-request` or the `socket-request` object(s) (from which you can get the current `uid` if you need to.) '
-				+ '- for more info, visit https://docs.nodebb.org/en/latest/plugins/create.html#getting-a-reference-to-each-request-from-within-any-plugin-hook\n');
-				delete Plugins.deprecatedHooksParams[hook];
-			}
 		}
 
 		if (data.hook && data.method) {
@@ -77,7 +54,7 @@ module.exports = function(Plugins) {
 			}
 
 			if (typeof data.method === 'string' && data.method.length > 0) {
-				method = data.method.split('.').reduce(function(memo, prop) {
+				method = data.method.split('.').reduce(function (memo, prop) {
 					if (memo && memo[prop]) {
 						return memo[prop];
 					} else {
@@ -94,12 +71,13 @@ module.exports = function(Plugins) {
 				register();
 			} else {
 				winston.warn('[plugins/' + id + '] Hook method mismatch: ' + data.hook + ' => ' + data.method);
+				return callback();
 			}
 		}
 	};
 
-	Plugins.fireHook = function(hook, params, callback) {
-		callback = typeof callback === 'function' ? callback : function() {};
+	Plugins.fireHook = function (hook, params, callback) {
+		callback = typeof callback === 'function' ? callback : function () {};
 
 		var hookList = Plugins.loadedHooks[hook];
 		var hookType = hook.split(':')[0];
@@ -125,7 +103,7 @@ module.exports = function(Plugins) {
 			return callback(null, params);
 		}
 
-		async.reduce(hookList, params, function(params, hookObj, next) {
+		async.reduce(hookList, params, function (params, hookObj, next) {
 			if (typeof hookObj.method !== 'function') {
 				if (global.env === 'development') {
 					winston.warn('[plugins] Expected method for hook \'' + hook + '\' in plugin \'' + hookObj.id + '\' not found, skipping.');
@@ -134,8 +112,7 @@ module.exports = function(Plugins) {
 			}
 
 			hookObj.method(params, next);
-
-		}, function(err, values) {
+		}, function (err, values) {
 			if (err) {
 				winston.error('[plugins] ' + hook + ',  ' + err.message);
 			}
@@ -148,7 +125,7 @@ module.exports = function(Plugins) {
 		if (!Array.isArray(hookList) || !hookList.length) {
 			return callback();
 		}
-		async.each(hookList, function(hookObj, next) {
+		async.each(hookList, function (hookObj, next) {
 
 			if (typeof hookObj.method !== 'function') {
 				if (global.env === 'development') {
@@ -166,18 +143,18 @@ module.exports = function(Plugins) {
 		if (!Array.isArray(hookList) || !hookList.length) {
 			return callback();
 		}
-		async.each(hookList, function(hookObj, next) {
+		async.each(hookList, function (hookObj, next) {
 			if (typeof hookObj.method === 'function') {
 				var timedOut = false;
 
-				var timeoutId = setTimeout(function() {
+				var timeoutId = setTimeout(function () {
 					winston.warn('[plugins] Callback timed out, hook \'' + hook + '\' in plugin \'' + hookObj.id + '\'');
 					timedOut = true;
 					next();
 				}, 5000);
 
 				try {
-					hookObj.method(params, function() {
+					hookObj.method(params, function () {
 						clearTimeout(timeoutId);
 						if (!timedOut) {
 							next.apply(null, arguments);
@@ -195,7 +172,7 @@ module.exports = function(Plugins) {
 		}, callback);
 	}
 
-	Plugins.hasListeners = function(hook) {
+	Plugins.hasListeners = function (hook) {
 		return !!(Plugins.loadedHooks[hook] && Plugins.loadedHooks[hook].length > 0);
 	};
 };

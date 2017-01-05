@@ -1,14 +1,14 @@
 'use strict';
 
-(function(module) {
+(function (module) {
 
-	var winston = require('winston'),
-		nconf = require('nconf'),
-		semver = require('semver'),
-		session = require('express-session'),
-		redis,
-		connectRedis,
-		redisClient;
+	var winston = require('winston');
+	var nconf = require('nconf');
+	var semver = require('semver');
+	var session = require('express-session');
+	var redis;
+	var connectRedis;
+	var redisClient;
 
 	module.questions = [
 		{
@@ -25,7 +25,8 @@
 			name: 'redis:password',
 			description: 'Password of your Redis database',
 			hidden: true,
-			before: function(value) { value = value || nconf.get('redis:password') || ''; return value; }
+			default: nconf.get('redis:password') || '',
+			before: function (value) { value = value || nconf.get('redis:password') || ''; return value; }
 		},
 		{
 			name: "redis:database",
@@ -34,7 +35,7 @@
 		}
 	];
 
-	module.init = function(callback) {
+	module.init = function (callback) {
 		try {
 			redis = require('redis');
 			connectRedis = require('connect-redis')(session);
@@ -58,19 +59,22 @@
 		require('./redis/sorted')(redisClient, module);
 		require('./redis/list')(redisClient, module);
 
-		if(typeof callback === 'function') {
+		if (typeof callback === 'function') {
 			callback();
 		}
 	};
 
-	module.connect = function(options) {
-		var redis_socket_or_host = nconf.get('redis:host'),
-			cxn, dbIdx;
-
-		options = options || {};
+	module.connect = function (options) {
+		var redis_socket_or_host = nconf.get('redis:host');
+		var cxn;
 
 		if (!redis) {
 			redis = require('redis');
+		}
+
+		options = options || {};
+		if (nconf.get('redis:password')) {
+			options.auth_pass = nconf.get('redis:password');
 		}
 
 		if (redis_socket_or_host && redis_socket_or_host.indexOf('/') >= 0) {
@@ -90,9 +94,9 @@
 			cxn.auth(nconf.get('redis:password'));
 		}
 
-		dbIdx = parseInt(nconf.get('redis:database'), 10);
+		var dbIdx = parseInt(nconf.get('redis:database'), 10);
 		if (dbIdx) {
-			cxn.select(dbIdx, function(error) {
+			cxn.select(dbIdx, function (error) {
 				if(error) {
 					winston.error("NodeBB could not connect to your Redis database. Redis returned the following error: " + error.message);
 					process.exit();
@@ -103,26 +107,32 @@
 		return cxn;
 	};
 
-	module.checkCompatibility = function(callback) {
-		module.info(module.client, function(err, info) {
+	module.createIndices = function (callback) {
+		setImmediate(callback);
+	};
+
+	module.checkCompatibility = function (callback) {
+		module.info(module.client, function (err, info) {
 			if (err) {
 				return callback(err);
 			}
 
 			if (semver.lt(info.redis_version, '2.8.9')) {
-				err = new Error('Your Redis version is not new enough to support NodeBB, please upgrade Redis to v2.8.9 or higher.');
-				err.stacktrace = false;
+				return callback(new Error('Your Redis version is not new enough to support NodeBB, please upgrade Redis to v2.8.9 or higher.'));
 			}
 
-			callback(err);
+			callback();
 		});
 	};
 
-	module.close = function() {
+	module.close = function () {
 		redisClient.quit();
 	};
 
-	module.info = function(cxn, callback) {
+	module.info = function (cxn, callback) {
+		if (!cxn) {
+			return callback();
+		}
 		cxn.info(function (err, data) {
 			if (err) {
 				return callback(err);
